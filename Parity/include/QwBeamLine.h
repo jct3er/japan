@@ -28,6 +28,7 @@
 #include "QwHaloMonitor.h"
 #include "QwQPD.h"
 #include "QwLinearDiodeArray.h"
+#include "Qw2DArray.h"
 #include "VQwClock.h"
 #include "QwBeamDetectorID.h"
 
@@ -51,6 +52,7 @@ class QwBeamLine : public VQwSubsystemParity, public MQwSubsystemCloneable<QwBea
   : VQwSubsystem(source),VQwSubsystemParity(source),
     fQPD(source.fQPD),
     fLinearArray(source.fLinearArray),
+    f2DArray(source.f2DArray),
     fCavity(source.fCavity),
     fHaloMonitor(source.fHaloMonitor),
     fECalculator(source.fECalculator),
@@ -185,6 +187,7 @@ protected:
 
   std::vector <QwQPD> fQPD;
   std::vector <QwLinearDiodeArray> fLinearArray;
+  std::vector <Qw2DArray> f2DArray;
   std::vector <QwBPMCavity> fCavity;
   std::vector <QwHaloMonitor> fHaloMonitor;
 

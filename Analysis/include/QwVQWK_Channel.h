@@ -13,6 +13,7 @@
 
 // ROOT headers
 #include "TTree.h"
+#include "TMath.h"
 
 // Qweak headers
 #include "VQwHardwareChannel.h"

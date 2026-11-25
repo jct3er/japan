@@ -339,6 +339,10 @@ Int_t QwBeamLine::LoadChannelMap(TString mapfile)
 	  index = AddToElementList(fLinearArray, localBeamDetectorID);
 	  local_element = &(fLinearArray.at(index));
 	}
+    if (localBeamDetectorID.fTypeID == kQw2DArray) {
+        index = AddToElementList(f2DArray, localBeamDetectorID);
+        local_element = &(f2DArray.at(index));
+    }
 
 	local_element->LoadChannelParameters(mapstr);
 	if (local_element->NeedsExternalClock()){
@@ -528,6 +532,18 @@ Int_t QwBeamLine::LoadEventCuts(TString  filename)
 	QwMessage<<"QwBeamLine Error Code passing to QwLinearArray "<<GetGlobalErrorFlag(varvalue,eventcut_flag,stabilitycut)<<QwLog::endl;
 	fLinearArray[det_index].SetSingleEventCuts(channel_name, GetGlobalErrorFlag(varvalue,eventcut_flag,stabilitycut), LLX, ULX, stabilitycut, burplevel);
 	}
+    else if (device_type == GetQwBeamInstrumentTypeName(kQw2DArray)) {
+          TString channel_name = mapstr.GetTypedNextToken<TString>();
+          channel_name.ToLower();
+          Double_t LLX = mapstr.GetTypedNextToken<Double_t>();	//lower limit for 2DArray X
+          Double_t ULX = mapstr.GetTypedNextToken<Double_t>();	//upper limit for 2DArray X
+          varvalue = mapstr.GetTypedNextToken<TString>();//global/loacal
+          Double_t stabilitycut = mapstr.GetTypedNextToken<Double_t>();
+          Double_t burplevel = mapstr.GetTypedNextToken<Double_t>();
+          varvalue.ToLower();
+          QwMessage << "QwBeamLine Error Code passing to Qw2DArray " << GetGlobalErrorFlag(varvalue, eventcut_flag, stabilitycut) << QwLog::endl;
+          f2DArray[det_index].SetSingleEventCuts(channel_name, GetGlobalErrorFlag(varvalue, eventcut_flag, stabilitycut), LLX, ULX, stabilitycut, burplevel);
+      }
 	else if (device_type ==  GetQwBeamInstrumentTypeName(kQwBPMCavity)){
 	TString channel_name =  mapstr.GetTypedNextToken<TString>();
 	channel_name.ToLower();
@@ -580,6 +596,9 @@ Int_t QwBeamLine::LoadEventCuts(TString  filename)
 
   for (size_t i=0;i<fLinearArray.size();i++)
     fLinearArray[i].SetEventCutMode(eventcut_flag);
+
+  for (size_t i = 0;i < f2DArray.size();i++)
+      f2DArray[i].SetEventCutMode(eventcut_flag);
 
   for (size_t i=0;i<fCavity.size();i++)
     fCavity[i].SetEventCutMode(eventcut_flag);
@@ -973,7 +992,26 @@ Int_t QwBeamLine::LoadInputParameters(TString pedestalfile)
 			i=fLinearArray.size()+1;
 		      }
 		  }
-	      }	    
+	      }
+        for (size_t i = 0;i < f2DArray.size();i++)
+        {
+            for (int j = 0;j < 8;j++)
+            {
+                TString localname = f2DArray[i].GetSubElementName(j);
+                localname.ToLower();
+                if (ldebug)  std::cout << "2DArray element name ==" << localname
+                    << "== to be compared to ==" << varname << "== \n";
+                if (localname == varname)
+                {
+                    if (ldebug) std::cout << " I found it !\n";
+                    f2DArray[i].SetSubElementPedestal(j, varped);
+                    f2DArray[i].SetSubElementCalibrationFactor(j, varcal);
+                    notfound = kFALSE;
+                    j = 9;
+                    i = f2DArray.size() + 1;
+                }
+            }
+        }
 	    for(size_t i=0;i<fCavity.size();i++)
 	      {
 		for(size_t j=0;j<QwBPMCavity::kNumElements;j++)
@@ -1218,6 +1256,20 @@ Int_t QwBeamLine::ProcessEvBuffer(const ROCID_t roc_id, const BankID_t bank_id, 
 
 	      }
 
+        if (fBeamDetectorID[i].fTypeID == kQw2DArray)
+        {
+            if (lkDEBUG)
+            {
+                std::cout << "found 2D array data for " << fBeamDetectorID[i].fdetectorname << fBeamDetectorID[i].fIndex << std::endl;
+                std::cout << "word left to read in this buffer:" << num_words - fBeamDetectorID[i].fWordInSubbank << std::endl;
+            }
+            f2DArray[fBeamDetectorID[i].fIndex].
+                ProcessEvBuffer(&(buffer[fBeamDetectorID[i].fWordInSubbank]),
+                    num_words - fBeamDetectorID[i].fWordInSubbank,
+                    fBeamDetectorID[i].fSubelement);
+
+        }
+
 	    if(fBeamDetectorID[i].fTypeID==kQwBPMCavity)
 	      {
 		if (lkDEBUG)
@@ -1316,6 +1368,11 @@ Bool_t QwBeamLine::ApplySingleEventCuts(){
     if(!status && bDEBUG) std::cout<<"******** QwBeamLine::SingleEventCuts()->LinearArray[ "<<i
 				   <<" , "<<fLinearArray[i].GetElementName()<<" ] *****\n";
   }
+  for (size_t i = 0;i < f2DArray.size();i++) {
+      status &= f2DArray[i].ApplySingleEventCuts();
+      if (!status && bDEBUG) std::cout << "******** QwBeamLine::SingleEventCuts()->2DArray[ " << i
+          << " , " << f2DArray[i].GetElementName() << " ] *****\n";
+  }
 
   for(size_t i=0;i<fCavity.size();i++){
     status &= fCavity[i].ApplySingleEventCuts();
@@ -1372,6 +1429,10 @@ Bool_t QwBeamLine::CheckForBurpFail(const VQwSubsystem *subsys){
     for(size_t i=0;i<input->fLinearArray.size();i++){
       //QwError << "************* test Lin *****************" << QwLog::endl;
       burpstatus |= (this->fLinearArray[i]).CheckForBurpFail(&(input->fLinearArray[i]));
+    }
+    for (size_t i = 0;i < input->f2DArray.size();i++) {
+        //QwError << "************* test 2D *****************" << QwLog::endl;
+        burpstatus |= (this->f2DArray[i]).CheckForBurpFail(&(input->f2DArray[i]));
     }
     for(size_t i=0;i<input->fCavity.size();i++){
       //QwError << "************* test Cavity *****************" << QwLog::endl;
@@ -1433,6 +1494,10 @@ void QwBeamLine::PrintErrorCounters() const{//inherited from the VQwSubsystemPar
     fLinearArray[i].PrintErrorCounters();
   }
   printf("\n");
+  for (size_t i = 0;i < f2DArray.size();i++) {
+      f2DArray[i].PrintErrorCounters();
+  }
+  printf("\n");
   for(size_t i=0;i<fCavity.size();i++){
     fCavity[i].PrintErrorCounters();
   }
@@ -1472,6 +1537,9 @@ void QwBeamLine::IncrementErrorCounters()
   for(size_t i=0;i<fLinearArray.size();i++){
     fLinearArray[i].IncrementErrorCounters();
   }
+  for (size_t i = 0;i < f2DArray.size();i++) {
+      f2DArray[i].IncrementErrorCounters();
+  }
   for(size_t i=0;i<fCavity.size();i++){
     fCavity[i].IncrementErrorCounters();
   }
@@ -1503,6 +1571,9 @@ UInt_t QwBeamLine::GetEventcutErrorFlag(){//return the error flag
   }  
   for(size_t i=0;i<fLinearArray.size();i++){
     ErrorFlag |= fLinearArray[i].GetEventcutErrorFlag();
+  }
+  for (size_t i = 0;i < f2DArray.size();i++) {
+      ErrorFlag |= f2DArray[i].GetEventcutErrorFlag();
   }
   for(size_t i=0;i<fCavity.size();i++){
     ErrorFlag |= fCavity[i].GetEventcutErrorFlag();
@@ -1539,6 +1610,9 @@ UInt_t QwBeamLine::UpdateErrorFlag(){//return the error flag
   for(size_t i=0;i<fLinearArray.size();i++){
     ErrorFlag |= fLinearArray[i].UpdateErrorFlag();
   }
+  for (size_t i = 0;i < f2DArray.size();i++) {
+      ErrorFlag |= f2DArray[i].UpdateErrorFlag();
+  }
   for(size_t i=0;i<fCavity.size();i++){
     ErrorFlag |= fCavity[i].UpdateErrorFlag();
   }  
@@ -1574,6 +1648,8 @@ void QwBeamLine::UpdateErrorFlag(const VQwSubsystem *ev_error){
 	(this->fQPD[i]).UpdateErrorFlag(&(input->fQPD[i]));
       for(size_t i=0;i<input->fLinearArray.size();i++)
 	(this->fLinearArray[i]).UpdateErrorFlag(&(input->fLinearArray[i]));
+      for (size_t i = 0;i < input->f2DArray.size();i++)
+   (this->f2DArray[i]).UpdateErrorFlag(&(input->f2DArray[i]));
       for(size_t i=0;i<input->fCavity.size();i++)
 	(this->fCavity[i]).UpdateErrorFlag(&(input->fCavity[i]));      
       for(size_t i=0;i<input->fBCM.size();i++){
@@ -1618,6 +1694,9 @@ void  QwBeamLine::ProcessEvent()
 
   for(size_t i=0;i<fLinearArray.size();i++)
     fLinearArray[i].ProcessEvent();
+
+  for (size_t i = 0;i < f2DArray.size();i++)
+	  f2DArray[i].ProcessEvent();
 
   for(size_t i=0;i<fHaloMonitor.size();i++){
     fHaloMonitor[i].ProcessEvent();
@@ -1769,6 +1848,8 @@ void QwBeamLine::ClearEventData()
     fQPD[i].ClearEventData();
   for(size_t i=0;i<fLinearArray.size();i++)
     fLinearArray[i].ClearEventData();
+  for(size_t i=0;i<f2DArray.size();i++)
+    f2DArray[i].ClearEventData();
   for(size_t i=0;i<fHaloMonitor.size();i++)
     fHaloMonitor[i].ClearEventData();
 
@@ -1828,6 +1909,12 @@ VQwDataElement* QwBeamLine::GetElement(EQwBeamInstrumentType TypeID, Int_t index
     break;
   case kQwLinearArray:
     tmp_ptr = &(fLinearArray.at(index));
+    break;
+  case kQw2DArray:
+      tmp_ptr = &(f2DArray.at(index));
+      break;
+  case kQw2DArray:
+    tmp_ptr = &(f2DArray.at(index));
     break;
   case kQwBCM:
     tmp_ptr = fBCM.at(index).get();
@@ -1892,6 +1979,9 @@ const VQwHardwareChannel* QwBeamLine::GetChannel(EQwBeamInstrumentType TypeID, I
   } else if (TypeID==kQwLinearArray){
     /// TODO: QwBeamLine::GetChannel
     /// How do we access linear array channel outputs?
+  } else if (TypeID == kQw2DArray) {
+      /// TODO: QwBeamLine::GetChannel
+	  /// Was not implemented for linear array, so not sure how to implement for 2D array
   } else if (TypeID==kQwBCM || TypeID==kQwCombinedBCM){
     tmp_channel = dynamic_cast<const VQwBCM*>(GetElement(TypeID,index))->GetCharge();
   } else if (TypeID==kQwEnergyCalculator){
@@ -2098,6 +2188,8 @@ VQwSubsystem&  QwBeamLine::operator=  (VQwSubsystem *value)
 	this->fQPD[i]=input->fQPD[i];
       for(size_t i=0;i<input->fLinearArray.size();i++)
 	this->fLinearArray[i]=input->fLinearArray[i];
+      for(size_t i=0;i<input->f2DArray.size();i++)
+	this->f2DArray[i]=input->f2DArray[i];
       for(size_t i=0;i<input->fCavity.size();i++)
 	this->fCavity[i]=input->fCavity[i];
       for(size_t i=0;i<input->fBCM.size();i++)
@@ -2144,6 +2236,8 @@ VQwSubsystem&  QwBeamLine::operator+=  (VQwSubsystem *value)
 	this->fQPD[i]+=input->fQPD[i];
       for(size_t i=0;i<input->fLinearArray.size();i++)
 	this->fLinearArray[i]+=input->fLinearArray[i];
+      for(size_t i=0;i<input->f2DArray.size();i++)
+	this->f2DArray[i]+=input->f2DArray[i];
       for(size_t i=0;i<input->fBCM.size();i++)
 	*(this->fBCM[i].get())+=*(input->fBCM[i].get());
       for(size_t i=0;i<input->fHaloMonitor.size();i++)
@@ -2187,6 +2281,8 @@ VQwSubsystem&  QwBeamLine::operator-=  (VQwSubsystem *value)
 	this->fQPD[i]-=input->fQPD[i];
       for(size_t i=0;i<input->fLinearArray.size();i++)
 	this->fLinearArray[i]-=input->fLinearArray[i];
+      for(size_t i=0;i<input->f2DArray.size();i++)
+	this->f2DArray[i]-=input->f2DArray[i];
       for(size_t i=0;i<input->fBCM.size();i++)
 	*(this->fBCM[i].get())-=*(input->fBCM[i].get());
       for(size_t i=0;i<input->fHaloMonitor.size();i++)
@@ -2255,6 +2351,8 @@ void QwBeamLine::Ratio(VQwSubsystem  *numer, VQwSubsystem  *denom)
 	this->fQPD[i].Ratio(innumer->fQPD[i],indenom->fQPD[i]);
       for(size_t i=0;i<innumer->fLinearArray.size();i++)
 	this->fLinearArray[i].Ratio(innumer->fLinearArray[i],indenom->fLinearArray[i]);
+      for(size_t i=0;i<innumer->f2DArray.size();i++)
+	this->f2DArray[i].Ratio(innumer->f2DArray[i],indenom->f2DArray[i]);
       for(size_t i=0;i<innumer->fBCM.size();i++)
 	this->fBCM[i].get()->Ratio(*(innumer->fBCM[i].get()),
       *(indenom->fBCM[i].get()));
@@ -2285,6 +2383,7 @@ void QwBeamLine::Scale(Double_t factor)
   for(size_t i=0;i<fCavity.size();i++)      fCavity[i].Scale(factor);
   for(size_t i=0;i<fQPD.size();i++)         fQPD[i].Scale(factor);
   for(size_t i=0;i<fLinearArray.size();i++) fLinearArray[i].Scale(factor);
+  for(size_t i=0;i<f2DArray.size();i++)     f2DArray[i].Scale(factor);
   for(size_t i=0;i<fBCM.size();i++)         fBCM[i].get()->Scale(factor);
   for(size_t i=0;i<fHaloMonitor.size();i++) fHaloMonitor[i].Scale(factor);
   for(size_t i=0;i<fBCMCombo.size();i++)    fBCMCombo[i].get()->Scale(factor);
@@ -2301,6 +2400,7 @@ void QwBeamLine::CalculateRunningAverage()
   for (size_t i = 0; i < fCavity.size();       i++) fCavity[i].CalculateRunningAverage();
   for (size_t i = 0; i < fQPD.size();          i++) fQPD[i].CalculateRunningAverage();
   for (size_t i = 0; i < fLinearArray.size();  i++) fLinearArray[i].CalculateRunningAverage();
+  for (size_t i = 0; i < f2DArray.size();      i++) f2DArray[i].CalculateRunningAverage();
   for (size_t i = 0; i < fBCM.size();          i++) fBCM[i].get()->CalculateRunningAverage();
   for (size_t i = 0; i < fHaloMonitor.size();  i++) fHaloMonitor[i].CalculateRunningAverage();
   for (size_t i = 0; i < fBCMCombo.size();     i++) fBCMCombo[i].get()->CalculateRunningAverage();
@@ -2320,6 +2420,8 @@ void QwBeamLine::PrintValue() const
   for (size_t i = 0; i < fQPD.size(); i++) fQPD[i].PrintValue();
   QwMessage << "LinearArray" << QwLog::endl;
   for (size_t i = 0; i < fLinearArray.size(); i++) fLinearArray[i].PrintValue();
+  QwMessage << "2DArray" << QwLog::endl;
+  for (size_t i = 0; i < f2DArray.size(); i++) f2DArray[i].PrintValue();
   QwMessage << "BPM cavity" << QwLog::endl;
   for (size_t i = 0; i < fCavity.size(); i++) fCavity[i].PrintValue();
   QwMessage << "BCM" << QwLog::endl;
@@ -2359,6 +2461,8 @@ void QwBeamLine::AccumulateRunningSum(VQwSubsystem* value1, Int_t count, Int_t E
       fQPD[i].AccumulateRunningSum(value->fQPD[i], count, ErrorMask);
     for (size_t i = 0; i < fLinearArray.size();  i++)
       fLinearArray[i].AccumulateRunningSum(value->fLinearArray[i], count, ErrorMask);
+    for (size_t i = 0; i < f2DArray.size(); i++)
+        f2DArray[i].AccumulateRunningSum(value->f2DArray[i], count, ErrorMask);
     for (size_t i = 0; i <fHaloMonitor.size();  i++)
       fHaloMonitor[i].AccumulateRunningSum(value->fHaloMonitor[i], count, ErrorMask);
     
@@ -2384,7 +2488,9 @@ void QwBeamLine::DeaccumulateRunningSum(VQwSubsystem* value1, Int_t ErrorMask){
     for (size_t i = 0; i < fQPD.size();  i++)
       fQPD[i].DeaccumulateRunningSum(value->fQPD[i], ErrorMask);
     for (size_t i = 0; i < fLinearArray.size();  i++)
-      fLinearArray[i].DeaccumulateRunningSum(value->fLinearArray[i], ErrorMask);    
+      fLinearArray[i].DeaccumulateRunningSum(value->fLinearArray[i], ErrorMask);
+    for (size_t i = 0; i < f2DArray.size(); i++)
+        f2DArray[i].DeaccumulateRunningSum(value->f2DArray[i], ErrorMask);
     for (size_t i = 0; i < fECalculator.size();  i++)
       fECalculator[i].DeaccumulateRunningSum(value->fECalculator[i], ErrorMask);
     for (size_t i = 0; i <fHaloMonitor.size();  i++)
@@ -2432,6 +2538,8 @@ Bool_t QwBeamLine::Compare(VQwSubsystem *value)
 	res=kFALSE;
       }else if(input->fLinearArray.size()!=fLinearArray.size()){
 	res=kFALSE;
+      }else if(input->f2DArray.size()!=f2DArray.size()){
+	res=kFALSE;
       }else if(input->fECalculator.size()!=fECalculator.size()){
 	res=kFALSE;
       }else if(input->fCavity.size()!=fCavity.size()){
@@ -2461,6 +2569,9 @@ void  QwBeamLine::ConstructHistograms(TDirectory *folder, TString &prefix)
 
   for(size_t i=0;i<fLinearArray.size();i++)
       fLinearArray[i].ConstructHistograms(folder,prefix);
+  
+  for(size_t i=0;i<f2DArray.size();i++)
+      f2DArray[i].ConstructHistograms(folder,prefix);
 
   for(size_t i=0;i<fCavity.size();i++)
       fCavity[i].ConstructHistograms(folder,prefix);
@@ -2493,6 +2604,8 @@ void  QwBeamLine::FillHistograms()
     fQPD[i].FillHistograms();
   for(size_t i=0;i<fLinearArray.size();i++)
     fLinearArray[i].FillHistograms();
+  for(size_t i=0;i<f2DArray.size();i++)
+    f2DArray[i].FillHistograms();
   for(size_t i=0;i<fCavity.size();i++)
     fCavity[i].FillHistograms();
   for(size_t i=0;i<fBCM.size();i++)
@@ -2522,6 +2635,8 @@ void QwBeamLine::ConstructBranchAndVector(TTree *tree, TString & prefix, std::ve
     fQPD[i].ConstructBranchAndVector(tree, prefix, values);
   for(size_t i = 0; i < fLinearArray.size(); i++)
     fLinearArray[i].ConstructBranchAndVector(tree, prefix, values);
+  for(size_t i = 0; i < f2DArray.size(); i++)
+    f2DArray[i].ConstructBranchAndVector(tree, prefix, values);
   for(size_t i = 0; i < fCavity.size(); i++)
     fCavity[i].ConstructBranchAndVector(tree, prefix, values);
   for(size_t i = 0; i < fBCM.size(); i++)
@@ -2549,6 +2664,8 @@ void QwBeamLine::ConstructBranch(TTree *tree, TString & prefix)
     fQPD[i].ConstructBranch(tree, prefix);
   for(size_t i = 0; i < fLinearArray.size(); i++)
     fLinearArray[i].ConstructBranch(tree, prefix);
+  for(size_t i = 0; i < f2DArray.size(); i++)
+    f2DArray[i].ConstructBranch(tree, prefix);
   for(size_t i = 0; i < fBCM.size(); i++)
     fBCM[i].get()->ConstructBranch(tree, prefix);
   for(size_t i = 0; i <fCavity.size(); i++)
@@ -2598,6 +2715,14 @@ void QwBeamLine::ConstructBranch(TTree *tree, TString & prefix, QwParameterFile&
     nextmodule=trim_file.ReadUntilNextModule();//This section contains sub modules and or channels to be included in the tree
     for(size_t i = 0; i < fLinearArray.size(); i++)
       fLinearArray[i].ConstructBranch(tree, prefix,*nextmodule);
+  }
+
+  tmp = "Qw2DDiodeArray";
+  trim_file.RewindToFileStart();
+  if (trim_file.FileHasModuleHeader(tmp)) {
+      nextmodule = trim_file.ReadUntilNextModule();//This section contains sub modules and or channels to be included in the tree
+      for (size_t i = 0; i < f2DArray.size(); i++)
+          f2DArray[i].ConstructBranch(tree, prefix, *nextmodule);
   }
 
   tmp="QwBPMCavity";
@@ -2673,6 +2798,8 @@ void QwBeamLine::FillTreeVector(std::vector<Double_t> &values) const
     fQPD[i].FillTreeVector(values);
   for(size_t i = 0; i < fLinearArray.size(); i++)
     fLinearArray[i].FillTreeVector(values);
+  for(size_t i = 0; i < f2DArray.size(); i++)
+    f2DArray[i].FillTreeVector(values);
   for(size_t i = 0; i < fCavity.size(); i++)
     fCavity[i].FillTreeVector(values);
   for(size_t i = 0; i < fBCM.size(); i++)
@@ -2697,6 +2824,7 @@ void  QwBeamLine::PrintInfo() const
   std::cout<<"there are "<<fStripline.size()<<" striplines \n";
   std::cout<<"there are "<<fQPD.size()<<" QPDs \n";
   std::cout<<"there are "<<fLinearArray.size()<<" LinearArrays \n";
+  std::cout <<"there are"<<f2DArray.size()<<" 2DArrays \n";
   std::cout<<"there are "<<fCavity.size()<<" cavities \n";
   std::cout<<"there are "<<fBCM.size()<<" bcm \n";
   std::cout<<"there are "<<fHaloMonitor.size()<<" halomonitors \n";
@@ -2933,6 +3061,28 @@ void QwBeamLine::FillDB(QwParityDB *db, TString datatype)
     }
   }
 
+  ///   try to access 2DArray mean and its error
+  if (local_print_flag) QwMessage << QwColor(Qw::kGreen) << "2D PhotoDiode Array" << QwLog::endl;
+  for (i = 0; i < f2DArray.size(); i++) {
+      //    f2DArray[i].Make2DArrayList();
+      interface.clear();
+      interface = f2DArray[i].GetDBEntry();
+      for (j = 0; j < interface.size() - 5; j++) {
+          interface.at(j).SetAnalysisID(analysis_id);
+          interface.at(j).SetMonitorID(db);
+          interface.at(j).SetMeasurementTypeID(measurement_type_bpm);
+          interface.at(j).PrintStatus(local_print_flag);
+          interface.at(j).AddThisEntryToList(entrylist);
+      }
+      for (j = interface.size() - 5; j < interface.size(); j++) {
+          interface.at(j).SetAnalysisID(analysis_id);
+          interface.at(j).SetMonitorID(db);
+          interface.at(j).SetMeasurementTypeID(measurement_type_bcm);
+          interface.at(j).PrintStatus(local_print_flag);
+          interface.at(j).AddThisEntryToList(entrylist);
+      }
+  }
+
   ///   try to access cavity bpm mean and its error
   if(local_print_flag) QwMessage <<  QwColor(Qw::kGreen) << "Cavity Monitors" <<QwLog::endl;
   for(i=0; i< fCavity.size(); i++) {
@@ -3105,6 +3255,20 @@ void QwBeamLine::FillErrDB(QwParityDB *db, TString datatype)
       interface.at(j).AddThisEntryToList( entrylist );
     }
     if(local_print_flag) printf("\n");
+  }
+
+  ///   try to access 2DArray mean and its error
+  if (local_print_flag) QwMessage << QwColor(Qw::kGreen) << "2D PhotoDiode Array" << QwLog::endl;
+  for (i = 0; i < f2DArray.size(); i++) {
+      interface.clear();
+      interface = f2DArray[i].GetErrDBEntry();
+      for (j = 0; j < interface.size(); j++) {
+          interface.at(j).SetAnalysisID(analysis_id);
+          interface.at(j).SetMonitorID(db);
+          interface.at(j).PrintStatus(local_print_flag);
+          interface.at(j).AddThisEntryToList(entrylist);
+      }
+      if (local_print_flag) printf("\n");
   }
 
   ///   try to access cavity bpm mean and its error
